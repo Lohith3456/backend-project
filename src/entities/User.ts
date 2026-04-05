@@ -19,6 +19,18 @@ export class User {
   @Column({ nullable: false })
   email!: string;
 
+  @Column({ type: 'varchar', nullable: true })
+  username!: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  firstName!: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  lastName!: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  phone!: string | null;
+
   @Column({ nullable: false })
   passwordHash!: string;
 
