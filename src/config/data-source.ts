@@ -7,6 +7,8 @@ import { RefreshToken } from '../entities/RefreshToken';
 import { RoleEntity } from '../entities/RoleEntity';
 import { Permission } from '../entities/Permission';
 import { RolePermission } from '../entities/RolePermission';
+import { ReferralCode } from '../entities/ReferralCode';
+import { PaymentSettings } from '../entities/PaymentSettings';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -15,7 +17,7 @@ export const AppDataSource = new DataSource({
   username: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
-  entities: [Tenant, User, UserRole, RefreshToken, RoleEntity, Permission, RolePermission],
+  entities: [Tenant, User, UserRole, RefreshToken, RoleEntity, Permission, RolePermission, ReferralCode, PaymentSettings],
   synchronize: true,
   logging: process.env.NODE_ENV === 'development',
 });

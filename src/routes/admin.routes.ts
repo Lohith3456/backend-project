@@ -5,6 +5,8 @@ import { AppDataSource } from '../config/data-source';
 import { User } from '../entities/User';
 import { UserRole, Role } from '../entities/UserRole';
 import { Tenant } from '../entities/Tenant';
+import { ReferralCode } from '../entities/ReferralCode';
+import { PaymentSettings } from '../entities/PaymentSettings';
 
 const router = Router();
 
@@ -190,6 +192,156 @@ router.post('/faculty', async (req: Request, res: Response): Promise<void> => {
   await userRoleRepo.save(userRole);
 
   res.status(201).json({ message: 'Faculty member created successfully', email, username });
+});
+
+// GET /api/admin/payment-settings — returns enabled state for all gateways
+router.get('/payment-settings', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const repo = AppDataSource.getRepository(PaymentSettings);
+    const rows = await repo.find();
+
+    // Seed defaults if not yet in DB
+    const defaults: Record<string, boolean> = { upi: true, card: true, netbanking: false };
+    const result: Record<string, boolean> = { ...defaults };
+    for (const row of rows) result[row.gateway] = row.isEnabled;
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to fetch payment settings' });
+  }
+});
+
+// PATCH /api/admin/payment-settings/:gateway — toggle a gateway on/off
+router.patch('/payment-settings/:gateway', async (req: Request, res: Response): Promise<void> => {
+  const gateway = req.params.gateway as 'upi' | 'card' | 'netbanking';
+  if (!['upi', 'card', 'netbanking'].includes(gateway)) {
+    res.status(400).json({ message: 'Invalid gateway' }); return;
+  }
+  const { isEnabled } = req.body;
+  if (typeof isEnabled !== 'boolean') {
+    res.status(400).json({ message: 'isEnabled (boolean) is required' }); return;
+  }
+  try {
+    const repo = AppDataSource.getRepository(PaymentSettings);
+    let row = await repo.findOne({ where: { gateway } });
+    if (!row) {
+      row = repo.create({ gateway, isEnabled });
+    } else {
+      row.isEnabled = isEnabled;
+    }
+    await repo.save(row);
+    res.json({ gateway, isEnabled });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to update payment setting' });
+  }
+});
+
+// POST /api/admin/referrals/validate — validate a code and return discount info
+router.post('/referrals/validate', async (req: Request, res: Response): Promise<void> => {
+  const { code } = req.body;
+  if (!code) { res.status(400).json({ message: 'code is required' }); return; }
+  try {
+    const repo = AppDataSource.getRepository(ReferralCode);
+    const entry = await repo.findOne({ where: { code: code.toUpperCase() } });
+
+    if (!entry) { res.status(404).json({ message: 'Invalid referral code' }); return; }
+    if (!entry.isActive) { res.status(400).json({ message: 'This code is no longer active' }); return; }
+    if (entry.expiresAt && new Date(entry.expiresAt) < new Date()) {
+      res.status(400).json({ message: 'This code has expired' }); return;
+    }
+    if (entry.maxUsage !== null && entry.usageCount >= entry.maxUsage) {
+      res.status(400).json({ message: 'This code has reached its usage limit' }); return;
+    }
+
+    res.json({
+      valid: true,
+      code: entry.code,
+      discountType: entry.discountType,
+      discountAmount: Number(entry.discountAmount),
+    });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to validate code' });
+  }
+});
+
+// POST /api/admin/referrals/redeem — increment usage after successful payment
+router.post('/referrals/redeem', async (req: Request, res: Response): Promise<void> => {
+  const { code } = req.body;
+  if (!code) { res.status(400).json({ message: 'code is required' }); return; }
+  try {
+    const repo = AppDataSource.getRepository(ReferralCode);
+    const entry = await repo.findOne({ where: { code: code.toUpperCase() } });
+    if (entry) {
+      entry.usageCount += 1;
+      await repo.save(entry);
+    }
+    res.json({ message: 'Redeemed' });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to redeem code' });
+  }
+});
+// GET /api/admin/referrals
+router.get('/referrals', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const repo = AppDataSource.getRepository(ReferralCode);
+    const codes = await repo.find({ order: { createdAt: 'DESC' } });
+    res.json(codes);
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to fetch referral codes' });
+  }
+});
+
+// POST /api/admin/referrals
+router.post('/referrals', async (req: Request, res: Response): Promise<void> => {
+  const { code, discountType, discountAmount, discountPercent, expiresAt, maxUsage } = req.body;
+  if (!code || !discountType || discountAmount == null) {
+    res.status(400).json({ message: 'code, discountType and discountAmount are required' });
+    return;
+  }
+  try {
+    const repo = AppDataSource.getRepository(ReferralCode);
+    const existing = await repo.findOne({ where: { code: code.toUpperCase() } });
+    if (existing) { res.status(409).json({ message: 'Code already exists' }); return; }
+
+    const entry = repo.create({
+      code: code.toUpperCase(),
+      discountType,
+      discountAmount,
+      discountPercent: discountPercent || null,
+      expiresAt: expiresAt ? new Date(expiresAt) : null,
+      maxUsage: maxUsage || null,
+      isActive: true,
+    });
+    await repo.save(entry);
+    res.status(201).json(entry);
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to create referral code' });
+  }
+});
+
+// PATCH /api/admin/referrals/:id — toggle active
+router.patch('/referrals/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const repo = AppDataSource.getRepository(ReferralCode);
+    const entry = await repo.findOne({ where: { id: req.params.id } });
+    if (!entry) { res.status(404).json({ message: 'Not found' }); return; }
+    entry.isActive = req.body.isActive ?? !entry.isActive;
+    await repo.save(entry);
+    res.json(entry);
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to update' });
+  }
+});
+
+// DELETE /api/admin/referrals/:id
+router.delete('/referrals/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const repo = AppDataSource.getRepository(ReferralCode);
+    await repo.delete(req.params.id);
+    res.json({ message: 'Deleted' });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to delete' });
+  }
 });
 
 router.use(protect, requireRole('admin'));
