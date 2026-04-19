@@ -298,6 +298,10 @@ router.post('/referrals', async (req: Request, res: Response): Promise<void> => 
     res.status(400).json({ message: 'code, discountType and discountAmount are required' });
     return;
   }
+  if (discountType === 'percent' && (Number(discountAmount) < 0 || Number(discountAmount) > 100)) {
+    res.status(400).json({ message: 'Percentage discount must be between 0 and 100' });
+    return;
+  }
   try {
     const repo = AppDataSource.getRepository(ReferralCode);
     const existing = await repo.findOne({ where: { code: code.toUpperCase() } });

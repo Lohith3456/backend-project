@@ -5,6 +5,7 @@ import cors from 'cors';
 import authRoutes from './routes/auth.routes';
 import adminRoutes from './routes/admin.routes';
 import userRoutes from './routes/user.routes';
+import enrollmentRoutes from './routes/enrollment.routes';
 
 const app = express();
 
@@ -18,5 +19,6 @@ app.use(cookieParser());
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/user', userRoutes);
+app.use('/api/enrollments', enrollmentRoutes);
 
 export default app;
